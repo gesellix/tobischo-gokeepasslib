@@ -1,5 +1,14 @@
 ### TO BE RELEASED
 
+* Return an `ErrInvalidContentBlock` for a truncated or corrupted database file
+  instead of panicking
+    - The length of a content block is checked against the remaining content
+      before allocating it, a corrupted length allocated up to 4 GiB before
+    - The hash and the index of each KDBX v3.1 content block are verified, as
+      KeePass does, so corrupted content is no longer decoded silently
+    - Encrypted content which is not a multiple of the cipher block size (AES,
+      TwoFish) is rejected before decrypting it
+
 ### v3.7.0
 
 * Add support for stream protected binaries in the KDBX v3.1 metadata section

@@ -2,6 +2,8 @@ package gokeepasslib
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"testing"
 )
 
@@ -182,4 +184,80 @@ func TestBlockHMACBuilderBuildHMAC(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDecomposeContentBlocksDamaged(t *testing.T) {
+	content := bytes.Repeat([]byte("gokeepasslib"), 10)
+	masterSeed := make([]byte, 32)
+	transformedKey := make([]byte, 32)
+
+	var blocks31 bytes.Buffer
+	composeContentBlocks31(&blocks31, content)
+	var blocks4 bytes.Buffer
+	composeContentBlocks4(&blocks4, content, masterSeed, transformedKey)
+
+	decompose := map[string]func([]byte) ([]byte, error){
+		"v3.1": func(b []byte) ([]byte, error) {
+			return decomposeContentBlocks31(bytes.NewReader(b))
+		},
+		"v4": func(b []byte) ([]byte, error) {
+			return decomposeContentBlocks4(bytes.NewReader(b), masterSeed, transformedKey)
+		},
+	}
+	// The v4 encoder appends an empty HMAC and length after the final block,
+	// which the decoder never reads
+	composed := map[string][]byte{
+		"v3.1": blocks31.Bytes(),
+		"v4":   blocks4.Bytes()[:blocks4.Len()-32-4],
+	}
+	// Offset of the length of the first block
+	lengthOffset := map[string]int{"v3.1": 4 + 32, "v4": 32}
+
+	for version, blocks := range composed {
+		t.Run(version+" intact", func(t *testing.T) {
+			data, err := decompose[version](blocks)
+			if err != nil {
+				t.Fatalf("Failed to decompose blocks: %s", err)
+			}
+			if !bytes.Equal(data, content) {
+				t.Fatalf("Decomposed content does not match")
+			}
+		})
+
+		t.Run(version+" truncated", func(t *testing.T) {
+			for cut := range len(blocks) {
+				_, err := decompose[version](blocks[:cut])
+				if !errors.Is(err, ErrInvalidContentBlock) {
+					t.Fatalf("Expected ErrInvalidContentBlock at cut %d, got %v", cut, err)
+				}
+			}
+		})
+
+		t.Run(version+" length beyond the content", func(t *testing.T) {
+			damaged := bytes.Clone(blocks)
+			binary.LittleEndian.PutUint32(damaged[lengthOffset[version]:], 0xffffffff)
+			_, err := decompose[version](damaged)
+			if !errors.Is(err, ErrInvalidContentBlock) {
+				t.Fatalf("Expected ErrInvalidContentBlock, got %v", err)
+			}
+		})
+	}
+
+	t.Run("v3.1 changed data", func(t *testing.T) {
+		damaged := bytes.Clone(composed["v3.1"])
+		damaged[4+32+4] ^= 0x01
+		_, err := decomposeContentBlocks31(bytes.NewReader(damaged))
+		if !errors.Is(err, ErrInvalidContentBlock) {
+			t.Fatalf("Expected ErrInvalidContentBlock, got %v", err)
+		}
+	})
+
+	t.Run("v3.1 wrong block index", func(t *testing.T) {
+		damaged := bytes.Clone(composed["v3.1"])
+		binary.LittleEndian.PutUint32(damaged, 1)
+		_, err := decomposeContentBlocks31(bytes.NewReader(damaged))
+		if !errors.Is(err, ErrInvalidContentBlock) {
+			t.Fatalf("Expected ErrInvalidContentBlock, got %v", err)
+		}
+	})
 }

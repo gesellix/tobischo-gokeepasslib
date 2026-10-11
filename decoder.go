@@ -5,9 +5,13 @@ import (
 	"compress/gzip"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 )
+
+// cbcBlockSize is the block size of the block ciphers, AES and TwoFish
+const cbcBlockSize = 16
 
 var (
 	errInvalidHMACKey          = errors.New("Wrong password? HMAC-SHA256 of header mismatching")
@@ -113,11 +117,26 @@ func decodeRawContent(db *Database, content []byte, transformedKey []byte) error
 	if err != nil {
 		return err
 	}
+	// The block ciphers (AES and TwoFish in CBC mode) panic on content which
+	// is not a multiple of their block size, e.g. of a truncated file
+	isBlockCipher := !bytes.Equal(db.Header.FileHeaders.CipherID, CipherChaCha20)
+	if isBlockCipher && len(content)%cbcBlockSize != 0 {
+		return fmt.Errorf(
+			"%w: encrypted content of %d bytes is not a multiple of the cipher block size",
+			ErrInvalidContentBlock, len(content),
+		)
+	}
 	decryptedContent := encrypter.Decrypt(content)
 
 	// Check for StreamStartBytes (Kdbx v3.1)
 	if !db.Header.IsKdbx4() {
 		startBytes := db.Header.FileHeaders.StreamStartBytes
+		if len(decryptedContent) < len(startBytes) {
+			return fmt.Errorf(
+				"%w: content is shorter than the stream start bytes",
+				ErrInvalidContentBlock,
+			)
+		}
 		if !reflect.DeepEqual(decryptedContent[0:len(startBytes)], startBytes) {
 			return errDatabaseIntegrityFailed
 		}

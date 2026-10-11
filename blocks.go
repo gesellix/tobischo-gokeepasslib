@@ -1,7 +1,6 @@
 package gokeepasslib
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -17,6 +16,12 @@ const blockSplitRate = 1048576
 
 var (
 	errHMACVerificationFailed = errors.New("failed to verify HMAC")
+)
+
+// ErrInvalidContentBlock is returned if the content blocks of a database file
+// cannot be read, e.g. because the file is truncated or corrupted.
+var ErrInvalidContentBlock = errors.New(
+	"gokeepasslib: invalid content block, the database file is truncated or corrupted",
 )
 
 type BlockHMACBuilder struct {
@@ -65,23 +70,31 @@ func decomposeContentBlocks4(
 	hmacBuilder := NewBlockHMACBuilder(masterSeed, transformedKey)
 
 	index := uint64(0)
-	offset := uint32(0)
+	offset := 0
 	for {
-		var blockHMAC [32]byte
-		var length uint32
+		// Every block starts with its HMAC and its length
+		if len(content)-offset < 32+4 {
+			return nil, fmt.Errorf("%w: block %d is incomplete", ErrInvalidContentBlock, index)
+		}
 
+		var blockHMAC [32]byte
 		copy(blockHMAC[:], content[offset:offset+32])
 		offset += 32
 
-		buf := bytes.NewBuffer(content[offset : offset+4])
-		binary.Read(buf, binary.LittleEndian, &length)
-
+		length := binary.LittleEndian.Uint32(content[offset : offset+4])
 		offset += 4
 
-		data := make([]byte, length)
-		endOfData := offset + length
-		copy(data, content[offset:endOfData])
-		offset = endOfData
+		// The length is checked against the remaining content before allocating
+		// anything, since a damaged length could be up to 4 GiB
+		if uint64(length) > uint64(len(content)-offset) {
+			return nil, fmt.Errorf(
+				"%w: block %d claims %d bytes, but only %d are left",
+				ErrInvalidContentBlock, index, length, len(content)-offset,
+			)
+		}
+
+		data := content[offset : offset+int(length)]
+		offset += int(length)
 
 		calculatedHMAC := hmacBuilder.BuildHMAC(index, length, data)
 
@@ -89,12 +102,12 @@ func decomposeContentBlocks4(
 			return nil, fmt.Errorf("%w for block %d", errHMACVerificationFailed, index)
 		}
 
-		// Add to blocks
-		contentData = append(contentData, data...)
-
 		if length == 0 {
 			break
 		}
+
+		// Add to blocks
+		contentData = append(contentData, data...)
 
 		index++
 	}
@@ -111,31 +124,58 @@ func decomposeContentBlocks31(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 
-	offset := uint32(0)
+	index := uint32(0)
+	offset := 0
 	for {
-		var hash [32]byte
-		var length uint32
-		var data []byte
+		// Every block starts with its index, its hash and its length
+		if len(content)-offset < 4+32+4 {
+			return nil, fmt.Errorf("%w: block %d is incomplete", ErrInvalidContentBlock, index)
+		}
 
-		// Skipping Index, uint32
+		blockIndex := binary.LittleEndian.Uint32(content[offset : offset+4])
 		offset += 4
+		if blockIndex != index {
+			return nil, fmt.Errorf(
+				"%w: expected block %d, found block %d",
+				ErrInvalidContentBlock, index, blockIndex,
+			)
+		}
 
+		var hash [32]byte
 		copy(hash[:], content[offset:offset+32])
 		offset += 32
 
-		length = binary.LittleEndian.Uint32(content[offset : offset+4])
+		length := binary.LittleEndian.Uint32(content[offset : offset+4])
 		offset += 4
 
-		if length > 0 {
-			data = make([]byte, length)
-			copy(data, content[offset:offset+length])
-			offset += length
-
-			// Add to decoded blocks
-			contentData = append(contentData, data...)
-		} else {
+		if length == 0 {
+			// The final block has no data and an empty hash
+			if hash != [32]byte{} {
+				return nil, fmt.Errorf("%w: final block %d has a hash", ErrInvalidContentBlock, index)
+			}
 			break
 		}
+
+		// The length is checked against the remaining content before allocating
+		// anything, since a damaged length could be up to 4 GiB
+		if uint64(length) > uint64(len(content)-offset) {
+			return nil, fmt.Errorf(
+				"%w: block %d claims %d bytes, but only %d are left",
+				ErrInvalidContentBlock, index, length, len(content)-offset,
+			)
+		}
+
+		data := content[offset : offset+int(length)]
+		offset += int(length)
+
+		if sha256.Sum256(data) != hash {
+			return nil, fmt.Errorf("%w: hash of block %d does not match", ErrInvalidContentBlock, index)
+		}
+
+		// Add to decoded blocks
+		contentData = append(contentData, data...)
+
+		index++
 	}
 	return contentData, nil
 }

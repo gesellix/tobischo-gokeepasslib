@@ -1,6 +1,7 @@
 package gokeepasslib
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"testing"
@@ -196,6 +197,39 @@ func TestDecodeFile(t *testing.T) {
 					"Failed to decode password: should be 'AnotherPassword' not '%s'",
 					pw,
 				)
+			}
+		})
+	}
+}
+
+func TestDecodeTruncatedFile(t *testing.T) {
+	cases := []struct {
+		title      string
+		dbFilePath string
+	}{
+		{title: "Database Format v3.1", dbFilePath: "tests/kdbx3/example.kdbx"},
+		{title: "Database Format v4, AES", dbFilePath: "tests/kdbx4/example.kdbx"},
+		{title: "Database Format v4, TwoFish", dbFilePath: "tests/kdbx4/example-twofish.kdbx"},
+		{title: "Database Format v4, ChaCha20", dbFilePath: "tests/kdbx4/example-chacha.kdbx"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.title, func(t *testing.T) {
+			data, err := os.ReadFile(c.dbFilePath)
+			if err != nil {
+				t.Fatalf("Failed to read keepass file: %s", err)
+			}
+
+			// Cuts in the content, behind the header, which does not hold the
+			// whole remaining file
+			for _, cut := range []int{len(data) - 1, len(data) - 17, len(data) - 100, len(data) / 2} {
+				db := NewDatabase()
+				db.Credentials = NewPasswordCredentials(examplePassword)
+
+				err := NewDecoder(bytes.NewReader(data[:cut])).Decode(db)
+				if err == nil {
+					t.Fatalf("Expected an error for a file cut at %d of %d bytes", cut, len(data))
+				}
 			}
 		})
 	}
