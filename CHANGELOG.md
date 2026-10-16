@@ -1,5 +1,10 @@
 ### TO BE RELEASED
 
+* Add support for the Argon2id key derivation function in KDBX v4
+    - Adds `KdfArgon2id`
+    - Any KDF other than Argon2d was run as AES-KDF before, so a database with
+      Argon2id (as KeePass and KeePassXC can create) failed with a header HMAC
+      mismatch, as if the password was wrong
 * Return an `ErrInvalidContentBlock` for a truncated or corrupted database file
   instead of panicking
     - The length of a content block is checked against the remaining content

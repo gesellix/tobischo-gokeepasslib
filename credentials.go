@@ -58,15 +58,16 @@ func (c *DBCredentials) buildTransformedKey(db *Database) ([]byte, error) {
 	}
 
 	if db.Header.IsKdbx4() {
-		if reflect.DeepEqual(db.Header.FileHeaders.KdfParameters.UUID, KdfArgon2) {
-			// Argon 2
-			transformedKey = argon2.DKey(
-				transformedKey, // Master key
-				db.Header.FileHeaders.KdfParameters.Salt[:],             // Salt
-				uint32(db.Header.FileHeaders.KdfParameters.Iterations),  // Time cost
-				uint32(db.Header.FileHeaders.KdfParameters.Memory)/1024, // Memory cost
-				uint8(db.Header.FileHeaders.KdfParameters.Parallelism),  // Parallelism
-				32, // Hash length
+		kdfParameters := db.Header.FileHeaders.KdfParameters
+		if argon2Key := argon2KeyFunc(kdfParameters.UUID); argon2Key != nil {
+			// Argon2d or Argon2id
+			transformedKey = argon2Key(
+				transformedKey,                    // Master key
+				kdfParameters.Salt[:],             // Salt
+				uint32(kdfParameters.Iterations),  // Time cost
+				uint32(kdfParameters.Memory)/1024, // Memory cost
+				uint8(kdfParameters.Parallelism),  // Parallelism
+				32,                                // Hash length
 			)
 		} else {
 			// AES
@@ -93,6 +94,19 @@ func (c *DBCredentials) buildTransformedKey(db *Database) ([]byte, error) {
 		transformedKey = key[:]
 	}
 	return transformedKey, nil
+}
+
+// argon2KeyFunc returns the Argon2 variant for the given KDF UUID, or nil if
+// the UUID is not one of Argon2d and Argon2id
+func argon2KeyFunc(uuid []byte) func(password, salt []byte, time, memory uint32, threads uint8, keyLen uint32) []byte {
+	switch {
+	case reflect.DeepEqual(uuid, KdfArgon2):
+		return argon2.DKey
+	case reflect.DeepEqual(uuid, KdfArgon2id):
+		return argon2.IDKey
+	default:
+		return nil
+	}
 }
 
 func buildMasterKey(db *Database, transformedKey []byte) []byte {

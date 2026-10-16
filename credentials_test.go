@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/tobischo/argon2"
 )
 
 func TestCryptAESKey(t *testing.T) {
@@ -198,5 +200,54 @@ func BenchmarkCryptAESKey(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildTransformedKeyArgon2(t *testing.T) {
+	cases := []struct {
+		title     string
+		uuid      []byte
+		argon2Key func(password, salt []byte, time, memory uint32, threads uint8, keyLen uint32) []byte
+	}{
+		{title: "argon2d", uuid: KdfArgon2, argon2Key: argon2.DKey},
+		{title: "argon2id", uuid: KdfArgon2id, argon2Key: argon2.IDKey},
+	}
+
+	for _, c := range cases {
+		t.Run(c.title, func(t *testing.T) {
+			db := NewDatabase(WithDatabaseKDBXVersion40())
+			kdfParameters := db.Header.FileHeaders.KdfParameters
+			kdfParameters.UUID = c.uuid
+			kdfParameters.Memory = 64 * 1024
+			kdfParameters.Iterations = 2
+			kdfParameters.Parallelism = 2
+
+			credentials := NewPasswordCredentials("password")
+			result, err := credentials.buildTransformedKey(db)
+			if err != nil {
+				t.Fatalf("Received unexpected error %v", err)
+			}
+
+			compositeKey, err := credentials.buildCompositeKey()
+			if err != nil {
+				t.Fatalf("Received unexpected error %v", err)
+			}
+			expected := c.argon2Key(compositeKey, kdfParameters.Salt[:], 2, 64, 2, 32)
+			if !bytes.Equal(result, expected) {
+				t.Errorf("Received % X, expected % X", result, expected)
+			}
+		})
+	}
+}
+
+func TestArgon2KeyFunc(t *testing.T) {
+	salt := make([]byte, 32)
+	d := argon2KeyFunc(KdfArgon2)([]byte("key"), salt, 1, 64, 1, 32)
+	id := argon2KeyFunc(KdfArgon2id)([]byte("key"), salt, 1, 64, 1, 32)
+	if bytes.Equal(d, id) {
+		t.Errorf("Argon2d and Argon2id derived the same key % X", d)
+	}
+	if argon2KeyFunc(KdfAES4) != nil {
+		t.Errorf("Expected no Argon2 variant for AES-KDF")
 	}
 }

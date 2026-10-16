@@ -1,6 +1,7 @@
 package gokeepasslib
 
 import (
+	"bytes"
 	"os"
 	"reflect"
 	"testing"
@@ -411,5 +412,46 @@ func TestCreateNewFile(t *testing.T) {
 			"Decoding seemed to not work, title should be 'Sample Entry', was %s",
 			newdb.Content.Root.Groups[0].Entries[0].GetTitle(),
 		)
+	}
+}
+
+// Encode and decode a database v4 with Argon2id
+func TestEncodeFile4_Argon2id(t *testing.T) {
+	db := NewDatabase(WithDatabaseKDBXVersion40())
+	db.Header.FileHeaders.KdfParameters.UUID = KdfArgon2id
+	db.Header.FileHeaders.KdfParameters.Memory = 64 * 1024
+	db.Credentials = NewPasswordCredentials("password")
+	if err := db.LockProtectedEntries(); err != nil {
+		t.Fatalf("Problem locking entries. %s", err)
+	}
+
+	buf := bytes.NewBuffer([]byte{})
+	if err := NewEncoder(buf).Encode(db); err != nil {
+		t.Fatalf("Failed to encode file: %s", err)
+	}
+	data := buf.Bytes()
+
+	newdb := NewDatabase()
+	newdb.Credentials = NewPasswordCredentials("password")
+	if err := NewDecoder(bytes.NewReader(data)).Decode(newdb); err != nil {
+		t.Fatalf("Failed to decode file: %s", err)
+	}
+	if uuid := newdb.Header.FileHeaders.KdfParameters.UUID; !bytes.Equal(uuid, KdfArgon2id) {
+		t.Fatalf("KDF should be Argon2id, was % X", uuid)
+	}
+	if err := newdb.UnlockProtectedEntries(); err != nil {
+		t.Fatalf("Problem unlocking entries. %s", err)
+	}
+	if title := newdb.Content.Root.Groups[0].Entries[0].GetTitle(); title != "Sample Entry" {
+		t.Fatalf("Decoding seemed to not work, title should be 'Sample Entry', was %s", title)
+	}
+
+	// The same file with the UUID of Argon2d must not open: the key is
+	// derived with Argon2id
+	argon2d := bytes.Replace(data, KdfArgon2id, KdfArgon2, 1)
+	newdb = NewDatabase()
+	newdb.Credentials = NewPasswordCredentials("password")
+	if err := NewDecoder(bytes.NewReader(argon2d)).Decode(newdb); err == nil {
+		t.Fatal("Expected an error decoding the file as Argon2d")
 	}
 }
