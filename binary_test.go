@@ -52,7 +52,7 @@ func TestBinaryKDBXv31(t *testing.T) {
 }
 
 func TestBinaryKDBXv4(t *testing.T) {
-	db := NewDatabase(WithDatabaseKDBXVersion4())
+	db := NewDatabase(WithDatabaseKDBXVersion40())
 
 	randomData := make([]byte, 1024*1024)
 	rand.Read(randomData)
@@ -66,7 +66,7 @@ func TestBinaryKDBXv4(t *testing.T) {
 	var buffer bytes.Buffer
 	encoder := NewEncoder(&buffer)
 	encoder.Encode(db)
-	db = NewDatabase(WithDatabaseKDBXVersion4())
+	db = NewDatabase(WithDatabaseKDBXVersion40())
 	decoder := NewDecoder(bytes.NewReader(buffer.Bytes()))
 	decoder.Decode(db)
 	db.UnlockProtectedEntries()
@@ -164,7 +164,7 @@ func TestBinaryKDBXv31CleanBinaries(t *testing.T) {
 }
 
 func TestBinaryKDBXv4CleanBinaries(t *testing.T) {
-	db := NewDatabase(WithDatabaseKDBXVersion4())
+	db := NewDatabase(WithDatabaseKDBXVersion40())
 
 	expected := []*Binary{}
 	count := 5
@@ -212,7 +212,7 @@ func TestBinaryKDBXv4CleanBinaries(t *testing.T) {
 	var buffer bytes.Buffer
 	encoder := NewEncoder(&buffer)
 	encoder.Encode(db)
-	db = NewDatabase(WithDatabaseKDBXVersion4())
+	db = NewDatabase(WithDatabaseKDBXVersion40())
 	decoder := NewDecoder(bytes.NewReader(buffer.Bytes()))
 	decoder.Decode(db)
 	db.UnlockProtectedEntries()
