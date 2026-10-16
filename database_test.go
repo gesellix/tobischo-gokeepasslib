@@ -175,7 +175,7 @@ func ExampleNewDatabase_kdbxv4() {
 
 	// create the new database
 	db := NewDatabase(
-		WithDatabaseKDBXVersion4(),
+		WithDatabaseKDBXVersion40(),
 	)
 	db.Content.Meta.DatabaseName = "KDBX4"
 	db.Credentials = NewPasswordCredentials("supersecret")
