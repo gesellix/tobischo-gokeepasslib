@@ -1,5 +1,12 @@
 ### TO BE RELEASED
 
+* Add support for the Argon2id key derivation function in KDBX v4
+    - Adds `KdfArgon2id`
+    - Any KDF other than Argon2d was run as AES-KDF before, so a database with
+      Argon2id (as KeePass and KeePassXC can create) failed with a header HMAC
+      mismatch, as if the password was wrong
+    - The checks of the argon2 parameters apply to Argon2id as well
+
 ### v3.7.1
 
 * Return an error instead of panicking when decoding a truncated or corrupted
