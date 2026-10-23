@@ -372,3 +372,25 @@ func TestDecodeRawContentInvalidEncryptionIV(t *testing.T) {
 		t.Fatalf("Received error '%v', expected '%v'", err, ErrCorruptedDatabase)
 	}
 }
+
+func TestDecodeRawContentShorterThanStreamStartBytes(t *testing.T) {
+	db := NewDatabase(WithDatabaseKDBXVersion3())
+	db.Credentials = NewPasswordCredentials(examplePassword)
+
+	transformedKey, err := db.getTransformedKey()
+	if err != nil {
+		t.Fatalf("Failed to transform key: %s", err)
+	}
+
+	encoded, err := encodeRawContent(db, xmlHeader, transformedKey)
+	if err != nil {
+		t.Fatalf("Failed to encode content: %s", err)
+	}
+
+	// A file cut off within the stream start bytes, after the first AES
+	// block: a damaged file, not a wrong password
+	err = decodeRawContent(db, encoded[:16], transformedKey)
+	if !errors.Is(err, ErrCorruptedDatabase) {
+		t.Fatalf("Received error '%v', expected '%v'", err, ErrCorruptedDatabase)
+	}
+}

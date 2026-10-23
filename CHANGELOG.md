@@ -6,6 +6,8 @@
       Argon2id (as KeePass and KeePassXC can create) failed with a header HMAC
       mismatch, as if the password was wrong
     - The checks of the argon2 parameters apply to Argon2id as well
+* Return `ErrCorruptedDatabase` for a KDBX v3.1 file which is cut off within the
+  stream start bytes, instead of the error of a wrong password
 
 ### v3.7.1
 

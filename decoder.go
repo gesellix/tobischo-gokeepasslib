@@ -161,6 +161,14 @@ func decodeRawContent(db *Database, content []byte, transformedKey []byte) error
 	// Check for StreamStartBytes (Kdbx v3.1)
 	if !db.Header.IsKdbx4() {
 		startBytes := db.Header.FileHeaders.StreamStartBytes
+		// A file cut off within the stream start bytes is corrupted, the
+		// credentials may well be right
+		if len(decryptedContent) < len(startBytes) {
+			return fmt.Errorf(
+				"%w: content is shorter than the stream start bytes",
+				ErrCorruptedDatabase,
+			)
+		}
 		if !bytes.HasPrefix(decryptedContent, startBytes) {
 			return errDatabaseIntegrityFailed
 		}
